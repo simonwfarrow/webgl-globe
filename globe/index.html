@@ -109,14 +109,8 @@
     <strong><a href="http://www.chromeexperiments.com/globe">WebGL Globe</a></strong> <span class="bull">&bull;</span> Created by the Google Data Arts Team <span class="bull">&bull;</span> Data acquired from <a href="http://sedac.ciesin.columbia.edu/gpw/">SEDAC</a>
   </div>
 
-  <div id="currentInfo">
-    <span id="year1990" class="year">1990</span>
-    <span id="year1995" class="year">1995</span>
-    <span id="year2000" class="year">2000</span>
-  </div>
-
   <div id="title">
-    World Population
+    Access Worldpay Volume
   </div>
 
   <a id="ce" href="http://www.chromeexperiments.com/globe">
@@ -129,60 +123,105 @@
   <script type="text/javascript" src="/globe/globe.js"></script>
   <script type="text/javascript">
 
+    //API key for PTV developer
+    //NTBmY2U5ODA5ODVhNDc3ZGJhYTJhN2QyNmIzYWNmYWM6MDVlNjlmOTMtMTE3OC00YWQ3LWFjODEtMzUzMzAyY2UzODkz
+
+
     if(!Detector.webgl){
       Detector.addGetWebGLMessage();
     } else {
 
-      var years = ['1990','1995','2000'];
+      var globeData = [["seriesA", []]];
       var container = document.getElementById('container');
       var globe = new DAT.Globe(container);
 
-      console.log(globe);
-      var i, tweens = [];
-      
-      var settime = function(globe, t) {
-        return function() {
-          new TWEEN.Tween(globe).to({time: t/years.length},500).easing(TWEEN.Easing.Cubic.EaseOut).start();
-          var y = document.getElementById('year'+years[t]);
-          if (y.getAttribute('class') === 'year active') {
-            return;
-          }
-          var yy = document.getElementsByClassName('year');
-          for(i=0; i<yy.length; i++) {
-            yy[i].setAttribute('class','year');
-          }
-          y.setAttribute('class', 'year active');
-        };
-      };
-      
-      for(var i = 0; i<years.length; i++) {
-        var y = document.getElementById('year'+years[i]);
-        y.addEventListener('mouseover', settime(globe,i), false);
-      }
-      
-      var xhr;
-      TWEEN.start();
-      
-      
+      //load ip data and fetch lat ;ong values to plot on globe§
+
       xhr = new XMLHttpRequest();
-      xhr.open('GET', '/globe/population909500.json', true);
-      xhr.onreadystatechange = function(e) {
+      xhr.open('GET', '/globe/data.json', true);
+      xhr.onreadystatechange = async function (e) {
         if (xhr.readyState === 4) {
           if (xhr.status === 200) {
             var data = JSON.parse(xhr.responseText);
-            window.data = data;
-            for (i=0;i<data.length;i++) {
-              globe.addData(data[i][1], {format: 'magnitude', name: data[i][0], animated: true});
+            var ips = [];
+
+            for (i = 0; i < data.length; i++) {
+              ips.push(data[i].ip);
             }
-            globe.createPoints();
-            settime(globe,0)();
-            globe.animate();
-            document.body.style.backgroundImage = 'none'; // remove loading
+
+            var start = 0;
+            var counter = 0;
+            var ipsLeft = ips.slice(0,99);
+
+            while (ipsLeft.length>0){
+
+              await getIpBatch(ipsLeft).then(value => {
+
+                for (x = 0; x < value.length; x++) {
+                  globeData[0][1].push(value[x].lat);
+                  globeData[0][1].push(value[x].lon);
+                  globeData[0][1].push(data[counter].vol/ 10000); //replace with volume
+                  counter++;
+                  if (globeData[0][1].length == (data.length * 3)) {
+
+                    setGlobeData();
+                  }
+                }
+              });
+              start = start + 99;
+              ipsLeft = ips.slice(start,start+99);
+            }
+
+
+
           }
         }
-      };
-      xhr.send(null);
+      }
+    };
+    xhr.send(null);
+
+
+    const getIp = (ip) => {
+      return new Promise((resolve, reject) => {
+        //https://ip-api.com/#35.178.158.169
+        xhrLatLong = new XMLHttpRequest();
+        xhrLatLong.open('GET', 'http://ip-api.com/json/' + ip, true);
+        xhrLatLong.onreadystatechange = function (e) {
+          if (xhrLatLong.readyState === 4) {
+            if (xhrLatLong.status === 200) {
+              var data = JSON.parse(xhrLatLong.responseText);
+              resolve(data);
+            }
+            else {
+              reject('error');
+            }
+          }
+        };
+        xhrLatLong.send(null);
+      });
+    };
+
+    const getIpBatch = (ips) => {
+      return new Promise((resolve, reject) => {
+        fetch('http://ip-api.com/batch?fields=lat,lon',{
+          method: 'POST',
+          body: JSON.stringify(ips),
+        })
+        .then(response => response.json())
+        .then(data => {
+          resolve(data);
+        })
+      });
+    };
+
+    const setGlobeData =() => {
+      window.data = globeData;
+      globe.addData(globeData[0][1], {format: 'magnitude'});
+      globe.createPoints();
+      globe.animate();
+      document.body.style.backgroundImage = 'none'; // remove loading
     }
+
 
   </script>
 
