@@ -3,6 +3,8 @@
   <head>
     <title>WebGL Globe</title>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.0-beta1/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-0evHe/X+R7YkIZDRvuzKMRqM+OrBnVFBL6DOitfPri4tjfHxaWutUpFmBp4vmVor" crossorigin="anonymous">
     <style type="text/css">
       html {
         height: 100%;
@@ -102,6 +104,7 @@
     </style>
   </head>
   <body>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.0-beta1/dist/js/bootstrap.bundle.min.js" integrity="sha384-pprn3073KE6tl6bjs2QrFaJGz5/SUsLqktiwsUTF55Jfv3qYSDhgCecCxMW52nD2" crossorigin="anonymous"></script>
 
   <div id="container"></div>
 
@@ -123,82 +126,75 @@
   <script type="text/javascript" src="/globe/globe.js"></script>
   <script type="text/javascript">
 
-    //API key for PTV developer
-    //NTBmY2U5ODA5ODVhNDc3ZGJhYTJhN2QyNmIzYWNmYWM6MDVlNjlmOTMtMTE3OC00YWQ3LWFjODEtMzUzMzAyY2UzODkz
+    var updateCount = 0;
 
+    const getQueryData = () => {
+      return new Promise((resolve,reject) => {
+        var url = new URL('https://app.scalyr.com/api/facetQuery')
+        fetch(url, {
+          method: 'POST',
+          body: JSON.stringify(getQuery())
+        })
+        .then(response => response.json())
+        .then(data=> resolve(data))
+      });
+    }
+
+    const getQuery = () => {
+      return {
+        "token":  "<TOKEN>",
+        "queryType": "facet",
+        "filter": "(logger='access' (!(is_edge_node=*) OR is_edge_node='true') host='access.worldpay.com' service=*  correlationId contains ''  merchant_name contains '' ) service=\"/payments\" ",
+        "field": "client_ip",
+        "maxCount": 1000,
+        "startTime": Date.now()-6000000
+      }
+    }
+
+    const updateData = (updateCount) => {
+      globeData.push(["series"+updateCount, []])
+      getQueryData().then(resp=>{
+
+        var ips = [];
+        for (i = 0; i < resp.values.length; i++) {
+          ips.push(resp.values[i].value);
+        }
+
+        var start = 0;
+        var counter = 0;
+        var ipsLeft = ips.slice(0,99);
+
+        while (ipsLeft.length>0){
+
+          getIpBatch(ipsLeft).then(value => {
+
+            for (x = 0; x < value.length; x++) {
+              globeData[updateCount][1].push(value[x].lat);
+              globeData[updateCount][1].push(value[x].lon);
+              globeData[updateCount][1].push(resp.values[counter].count /1000); //replace with volume
+              counter++;
+              if (globeData[updateCount][1].length == (resp.values.length * 3)) {
+
+                setGlobeData(updateCount);
+              }
+            }
+          });
+          start = start + 99;
+          ipsLeft = ips.slice(start,start+99);
+        }
+
+      });
+    }
 
     if(!Detector.webgl){
       Detector.addGetWebGLMessage();
     } else {
 
-      var globeData = [["seriesA", []]];
+      var globeData = [];
       var container = document.getElementById('container');
       var globe = new DAT.Globe(container);
+      updateData(0);
 
-      //load ip data and fetch lat ;ong values to plot on globe§
-
-      xhr = new XMLHttpRequest();
-      xhr.open('GET', '/globe/data.json', true);
-      xhr.onreadystatechange = async function (e) {
-        if (xhr.readyState === 4) {
-          if (xhr.status === 200) {
-            var data = JSON.parse(xhr.responseText);
-            var ips = [];
-
-            for (i = 0; i < data.length; i++) {
-              ips.push(data[i].ip);
-            }
-
-            var start = 0;
-            var counter = 0;
-            var ipsLeft = ips.slice(0,99);
-
-            while (ipsLeft.length>0){
-
-              await getIpBatch(ipsLeft).then(value => {
-
-                for (x = 0; x < value.length; x++) {
-                  globeData[0][1].push(value[x].lat);
-                  globeData[0][1].push(value[x].lon);
-                  globeData[0][1].push(data[counter].vol/ 10000); //replace with volume
-                  counter++;
-                  if (globeData[0][1].length == (data.length * 3)) {
-
-                    setGlobeData();
-                  }
-                }
-              });
-              start = start + 99;
-              ipsLeft = ips.slice(start,start+99);
-            }
-
-
-
-          }
-        }
-      }
-    };
-    xhr.send(null);
-
-
-    const getIp = (ip) => {
-      return new Promise((resolve, reject) => {
-        //https://ip-api.com/#35.178.158.169
-        xhrLatLong = new XMLHttpRequest();
-        xhrLatLong.open('GET', 'http://ip-api.com/json/' + ip, true);
-        xhrLatLong.onreadystatechange = function (e) {
-          if (xhrLatLong.readyState === 4) {
-            if (xhrLatLong.status === 200) {
-              var data = JSON.parse(xhrLatLong.responseText);
-              resolve(data);
-            }
-            else {
-              reject('error');
-            }
-          }
-        };
-        xhrLatLong.send(null);
-      });
     };
 
     const getIpBatch = (ips) => {
@@ -214,14 +210,21 @@
       });
     };
 
-    const setGlobeData =() => {
+
+    const setGlobeData = (updateCount) => {
       window.data = globeData;
-      globe.addData(globeData[0][1], {format: 'magnitude'});
+      globe.addData(globeData[updateCount][1], {format: 'magnitude', name: updateCount});
       globe.createPoints();
       globe.animate();
       document.body.style.backgroundImage = 'none'; // remove loading
     }
 
+
+    /*setInterval(function() {
+      updateCount++;
+      updateData(updateCount);
+    },60000);
+    */
 
   </script>
 
